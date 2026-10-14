@@ -1,0 +1,7 @@
+.cache/
+runtime/
+data/
+*.pem
+*.key
+.env
+node_modules/

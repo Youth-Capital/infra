@@ -1,0 +1,41 @@
+services:
+  backend:
+    image: ${BACKEND_IMAGE:?Publish a backend image before deploying backend}
+    user: "10001:10001"
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    env_file:
+      - path: ./runtime/backend.env
+        format: raw
+    environment:
+      TMPDIR: /app/private-media/.tmp
+    ports:
+      - "127.0.0.1:8000:8000"
+    networks: [backendnet]
+    volumes:
+      - ./data/media:/app/media
+      - ./data/private-media:/app/private-media
+    tmpfs:
+      - /tmp:size=32m,mode=1777,nosuid,noexec
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; r=urllib.request.Request('http://127.0.0.1:8000/api/v1/health/ready/', headers={'Host':'localhost','X-Forwarded-Proto':'https'}); response=urllib.request.urlopen(r, timeout=4); assert response.status == 200, response.status"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    stop_grace_period: 30s
+    mem_limit: 1500m
+    pids_limit: 256
+    logging:
+      driver: local
+      options: {max-size: 10m, max-file: "3"}

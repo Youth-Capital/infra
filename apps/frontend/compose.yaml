@@ -1,0 +1,24 @@
+services:
+  frontend:
+    image: ${FRONTEND_IMAGE:?Publish a frontend image before deploying frontend}
+    user: "101:101"
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks: [frontendnet]
+    tmpfs:
+      - /tmp:size=16m,mode=1777,nosuid,noexec
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8080/healthz]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    mem_limit: 128m
+    pids_limit: 64
+    logging:
+      driver: local
+      options: {max-size: 10m, max-file: "3"}

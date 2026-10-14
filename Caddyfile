@@ -1,0 +1,67 @@
+{
+	email {$ACME_EMAIL}
+	# Upstream error logs also include request URI and headers.
+	log default {
+		format filter {
+			request>uri query {
+				delete t
+				delete token
+			}
+			request>headers>Referer delete
+		}
+	}
+	servers {
+		protocols h1 h2 h3
+	}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+	log {
+		format filter {
+			request>uri query {
+				delete t
+				delete token
+			}
+			request>headers>Referer delete
+		}
+	}
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		Strict-Transport-Security "max-age=31536000"
+	}
+
+	@backend path /api /api/* /django-admin /django-admin/* /static /static/*
+	handle @backend {
+		request_body {
+			# The app supports 500 MB videos; allow multipart overhead too.
+			max_size 550MB
+		}
+		reverse_proxy 127.0.0.1:8000 {
+			# Exactly one trusted proxy. Discard any client-supplied chain.
+			header_up X-Forwarded-For {remote_host}
+		}
+	}
+
+	handle_path /media/* {
+		root * /opt/youthcapital/data/media
+		header {
+			X-Content-Type-Options nosniff
+			Content-Security-Policy "default-src 'none'; img-src 'self'; sandbox"
+			Cross-Origin-Resource-Policy same-site
+			Referrer-Policy no-referrer
+		}
+		file_server
+	}
+
+	# Private uploads have one authenticated API route, never a file server.
+	@private path /private-media /private-media/*
+	handle @private {
+		respond 404
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:8080
+	}
+}

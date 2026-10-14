@@ -1,0 +1,48 @@
+name: youthcapital
+
+services:
+  postgres:
+    image: postgres:18-bookworm@sha256:afc7e2d441324c0388fa80c3d24f733b4194a4eb7f47dd8ee2b08eb1a24a647c
+    restart: unless-stopped
+    env_file:
+      - path: ./runtime/postgres.env
+        format: raw
+    volumes:
+      # PostgreSQL 18 moved PGDATA underneath this version-independent mount.
+      - postgres_data:/var/lib/postgresql
+    networks: [backendnet]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    mem_limit: 1g
+    pids_limit: 128
+    logging:
+      driver: local
+      options: {max-size: 10m, max-file: "3"}
+
+  redis:
+    image: redis:8-alpine@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0
+    restart: unless-stopped
+    # Cache and shared rate limits only; recomputation stays synchronous.
+    command: [redis-server, --save, "", --appendonly, "no", --maxmemory, 192mb, --maxmemory-policy, noeviction]
+    networks: [backendnet]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    mem_limit: 256m
+    pids_limit: 64
+    logging:
+      driver: local
+      options: {max-size: 10m, max-file: "3"}
+
+volumes:
+  postgres_data:
+
+networks:
+  backendnet:
+  frontendnet:

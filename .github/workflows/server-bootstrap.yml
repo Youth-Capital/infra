@@ -1,0 +1,60 @@
+name: server bootstrap
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: prod-vps
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  bootstrap:
+    name: Bootstrap Ubuntu server
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: prod
+    steps:
+      - name: Check out event commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.21.0'
+      - name: Bootstrap server
+        timeout-minutes: 29
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          INFRA_BRANCH: main
+          VPS_HOST: ${{ vars.VPS_HOST }}
+          VPS_USERNAME: ${{ vars.VPS_USERNAME || 'deploy' }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+          VPS_PORT: ${{ vars.VPS_PORT || '22' }}
+          DOMAIN: ${{ vars.DOMAIN }}
+          ACME_EMAIL: ${{ vars.ACME_EMAIL }}
+          DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_DB: ${{ vars.POSTGRES_DB || 'youthcapital' }}
+          POSTGRES_USER: ${{ vars.POSTGRES_USER || 'youthcapital' }}
+          GUNICORN_WORKERS: ${{ vars.GUNICORN_WORKERS || '2' }}
+          GUNICORN_TIMEOUT: ${{ vars.GUNICORN_TIMEOUT || '300' }}
+          EMAIL_HOST: ${{ vars.EMAIL_HOST }}
+          EMAIL_PORT: ${{ vars.EMAIL_PORT || '587' }}
+          EMAIL_HOST_USER: ${{ secrets.EMAIL_HOST_USER }}
+          EMAIL_HOST_PASSWORD: ${{ secrets.EMAIL_HOST_PASSWORD }}
+          DEFAULT_FROM_EMAIL: ${{ vars.DEFAULT_FROM_EMAIL }}
+          AI_DEFAULT_PROVIDER: ${{ vars.AI_DEFAULT_PROVIDER || 'RULE_BASED' }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+        run: node scripts/controller.mjs bootstrap
