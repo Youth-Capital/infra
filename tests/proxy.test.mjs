@@ -32,10 +32,10 @@ test('Cloudflare visitor IP is trusted only from an approved proxy peer', async 
   let network = false;
   try {
     docker(['network', 'create', '--subnet', `${prefix}.0/24`, name]); network = true;
-    docker(['run', '-d', '--name', `${name}-upstream`, '--network', name, node, 'node', '-e',
+    docker(['run', '-d', '--name', `${name}-upstream`, '--network', name, '--ip', `${prefix}.10`, node, 'node', '-e',
       'require("node:http").createServer((req,res)=>{res.setHeader("content-type","application/json");res.end(JSON.stringify(req.headers));}).listen(8000,"0.0.0.0")']);
     containers.push(`${name}-upstream`);
-    docker(['run', '-d', '--name', `${name}-edge`, '--network', name,
+    docker(['run', '-d', '--name', `${name}-edge`, '--network', name, '--ip', `${prefix}.11`,
       '-e', 'DOMAIN=http://localhost:8080', '-e', 'ACME_EMAIL=ops@example.test',
       '-v', `${path.join(directory, 'Caddyfile')}:/etc/caddy/Caddyfile:ro`, caddy]);
     containers.push(`${name}-edge`);

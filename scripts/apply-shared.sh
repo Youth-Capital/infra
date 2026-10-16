@@ -24,8 +24,11 @@ for runtime in postgres backend caddy; do
   install -m 0600 "$bundle/runtime/$runtime.env" "$YC_ROOT/runtime/$runtime.env"
 done
 install -d -m 0755 "$YC_ROOT/data"
-install -d -o 10001 -g 10001 -m 0755 "$YC_ROOT/data/media"
-install -d -o 10001 -g 10001 -m 0700 "$YC_ROOT/data/private-media" "$YC_ROOT/data/private-media/.tmp"
+install -d -m 0755 "$YC_ROOT/data/media"
+install -d -m 0700 "$YC_ROOT/data/private-media" "$YC_ROOT/data/private-media/.tmp"
+# Some Ubuntu install implementations require named host users for -o/-g.
+# These are container IDs, so assign numeric ownership with chown instead.
+chown 10001:10001 "$YC_ROOT/data/media" "$YC_ROOT/data/private-media" "$YC_ROOT/data/private-media/.tmp"
 
 install -d -m 0755 /etc/systemd/system/caddy.service.d
 printf '[Service]\nEnvironmentFile=%s/runtime/caddy.env\n' "$YC_ROOT" > /etc/systemd/system/caddy.service.d/youthcapital.conf
