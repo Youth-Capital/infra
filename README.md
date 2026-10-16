@@ -27,6 +27,8 @@ The fixed VPS directory is `/opt/youthcapital`, and every Compose command uses `
 
 Normal image pushes change only the selected application's server image file. They start/check Postgres and Redis using the installed configuration, then replace the selected app; the sibling app keeps running. They do not apply shared config or runtime variables. A manual `deploy-backend` or `deploy-frontend` dispatch defaults `apply_shared=true`: install current shared config/runtime, preserve both server release files, reapply initialized apps, then deploy the selected release. Changing GitHub environment variables alone does not deploy anything; use that manual operation.
 
+Each backend/frontend deployment is one Actions run: **Validate infra → Deploy application**. The deploy job requires validation to succeed, including for manual deployments. Both workflows call the same reusable checks file, so validation is maintained once. Image-only pushes do not also launch a separate `infra checks` run; standalone checks remain for PRs and infrastructure source changes.
+
 An empty initial image file is intentional. Bootstrap starts only Postgres and Redis; it never loads or pulls an application placeholder. Each application deploy loads only `compose.yaml` plus its own fragment. Do not use `docker compose down`, `--remove-orphans`, or `down -v` for deployments. The omitted sibling is an intentional orphan and continues running.
 
 ## One-time GitHub configuration

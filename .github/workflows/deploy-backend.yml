@@ -27,8 +27,14 @@ concurrency:
   queue: max
 
 jobs:
+  validate:
+    name: Validate infra
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/checks.yml
+
   deploy:
     name: Deploy backend
+    needs: validate
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
