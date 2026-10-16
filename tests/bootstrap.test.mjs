@@ -16,7 +16,7 @@ for (const [name, answers, succeeds] of [
 ]) {
   test(`bootstrap DNS validation: ${name}`, () => {
     // Execute the real bootstrap check with deterministic DNS responses.
-    const program = `import json, subprocess, sys\nanswers=json.loads(sys.argv[1])\nsys.argv=['bootstrap','example.test']\nsubprocess.check_output=lambda args, **kwargs: answers[args[2]].encode()\nexec(${JSON.stringify(check)})`;
+    const program = `import json, subprocess, sys\nanswers=json.loads(sys.argv[1])\nsys.argv=['bootstrap','example.test']\nsubprocess.check_output=lambda args, **kwargs: answers[args[2]] if kwargs.get('text') else answers[args[2]].encode()\nexec(${JSON.stringify(check)})`;
     const result = spawnSync('docker', ['run', '--rm', '--network', 'none', image, 'python', '-c', program, JSON.stringify(answers)], { encoding: 'utf8', timeout: 60_000 });
     if (succeeds) assert.equal(result.status, 0, result.stderr);
     else { assert.equal(result.status, 1, result.stderr); assert.match(result.stderr, /No (A|AAAA) addresses resolved/); }
