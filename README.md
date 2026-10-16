@@ -1,5 +1,7 @@
 # Youth Capital production
 
+**First deployment: follow [SETUP.md](SETUP.md) for exact Windows PowerShell, server-console and GitHub instructions.** SSH connects as the non-root `deploy` account; the workflow runs bootstrap through passwordless `sudo -n`. `VPS_HOST` is an **infra/prod environment secret**. GitHub App credentials belong only in **backend/prod** and **frontend/prod**, never infra/prod.
+
 Three repositories, one Ubuntu VPS, one Compose project. Application repositories publish scanned images and change their own `apps/<app>/image.env` here. Only this repository has VPS access. Caddy runs as an Ubuntu systemd service and proxies the two application containers through IPv4 loopback; the public website supports IPv4, IPv6, HTTPS and HTTP/3.
 
 ```text
@@ -39,6 +41,7 @@ In **infra/prod**, configure:
 
 | Secrets | Meaning |
 | --- | --- |
+| `VPS_HOST` | VPS public IPv4 address or hostname; no username, scheme or port. A literal global IPv6 address is also supported. |
 | `VPS_SSH_KEY` | The account's private SSH key, including its complete multiline contents. |
 | `VPS_KNOWN_HOSTS` | Verified OpenSSH known-hosts line for this exact host and port. |
 | `DJANGO_SECRET_KEY` | At least 50 random characters; generate a real secret, not a placeholder. |
@@ -48,7 +51,6 @@ In **infra/prod**, configure:
 
 | Variables | Default / purpose |
 | --- | --- |
-| `VPS_HOST` | Required VPS public IPv4 address or hostname; a literal global IPv6 address is supported too. |
 | `VPS_USERNAME` | `deploy`; your manually created automation account. |
 | `DOMAIN` | Required, e.g. `domain-name.uz`; lowercase hostname without scheme/path. |
 | `ACME_EMAIL` | Required certificate contact email. |
