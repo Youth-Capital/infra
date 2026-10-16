@@ -52,6 +52,9 @@ test('Cloudflare visitor IP is trusted only from an approved proxy peer', async 
     assert.equal(direct['x-forwarded-proto'], 'http');
     const missing = probe(`${prefix}.3`, []);
     assert.equal(missing['x-forwarded-for'], `${prefix}.3`);
+  } catch (error) {
+    if (process.env.GITHUB_ACTIONS) console.error(`::error::${String(error.stack).replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A')}`);
+    throw error;
   } finally {
     for (const container of containers.reverse()) docker(['rm', '-f', container]);
     if (network) docker(['network', 'rm', name]);
