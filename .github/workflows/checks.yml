@@ -35,3 +35,7 @@ jobs:
             caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
       - name: Verify signed-download log redaction
         run: node --test tests/caddy.test.mjs
+      - name: Verify Cloudflare proxy trust and forged-header rejection
+        run: node --test tests/proxy.test.mjs
+      - name: Verify proxied and direct bootstrap DNS
+        run: node --test tests/bootstrap.test.mjs

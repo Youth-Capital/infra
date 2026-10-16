@@ -49,18 +49,12 @@ if ! ip -6 address show scope global | grep -q 'inet6 ' || ! ip -6 route show de
   exit 1
 fi
 domain="$(sed -n 's/^DOMAIN=//p' "$bundle/runtime/caddy.env")"
-# Both DNS families must point directly at an address on this machine.
+# Proxied DNS returns Cloudflare addresses; only require working A/AAAA DNS.
 python3 - "$domain" <<'PY'
 import ipaddress
-import json
 import subprocess
 import sys
 
-host = {
-    ipaddress.ip_address(address['local'])
-    for interface in json.loads(subprocess.check_output(['ip', '-j', 'address', 'show'], timeout=10))
-    for address in interface.get('addr_info', [])
-}
 for record_type in ('A', 'AAAA'):
     records = []
     for line in subprocess.check_output(['dig', '+short', record_type, sys.argv[1]], text=True, timeout=15).splitlines():
@@ -68,19 +62,29 @@ for record_type in ('A', 'AAAA'):
             records.append(ipaddress.ip_address(line))
         except ValueError:  # Ignore a CNAME label; verify its final addresses.
             pass
-    if not records or any(address not in host for address in records):
-        sys.exit(f'Domain {record_type} records must all point directly to this VPS before bootstrap.')
+    if not records:
+        sys.exit(f'No {record_type} addresses resolved for the configured DOMAIN. Check DNS records, nameservers and DNS propagation; Cloudflare proxying is supported.')
 PY
 bash "$bundle/scripts/apply-shared.sh" "$bundle"
-for attempt in {1..6}; do
-  if curl -6 --silent --show-error --connect-timeout 5 --max-time 10 "https://$domain/" -o /dev/null; then
+# Check the origin certificate directly: Cloudflare's edge certificate alone
+# cannot prove Caddy has a valid certificate for Full (strict). Keep SNI/Host.
+for attempt in {1..18}; do
+  if curl --noproxy '*' --silent --show-error --connect-timeout 5 --max-time 10 \
+      --resolve "$domain:443:127.0.0.1" "https://$domain/" -o /dev/null; then
     break
   fi
-  if [[ "$attempt" == 6 ]]; then
-    echo 'Public IPv6 HTTPS is not reachable; check provider firewall and DNS.' >&2
+  if [[ "$attempt" == 18 ]]; then
+    echo 'Caddy origin certificate is not ready. Check journalctl -u caddy, origin TCP 80/443, Cloudflare DNS origin address and ACME HTTP challenge access. Keep the proxy enabled; allow /.well-known/acme-challenge/* through redirects/WAF.' >&2
     exit 1
   fi
   sleep 5
 done
+curl -6 --noproxy '*' --silent --show-error --connect-timeout 5 --max-time 10 \
+  --resolve "$domain:443:[::1]" "https://$domain/" -o /dev/null || {
+  echo 'Origin IPv6 HTTPS failed on loopback; check Caddy IPv6 listening.' >&2; exit 1;
+}
+curl -6 --silent --show-error --connect-timeout 5 --max-time 15 "https://$domain/" -o /dev/null || {
+  echo 'Public IPv6 HTTPS failed; check Cloudflare edge certificate status, DNS and provider connectivity.' >&2; exit 1;
+}
 ss -lun '( sport = :443 )' | grep -q ':443' || { echo 'Caddy is not listening on UDP 443 for HTTP/3.' >&2; exit 1; }
 echo 'Bootstrap complete. Publish/deploy each application independently.'

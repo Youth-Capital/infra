@@ -67,7 +67,9 @@ GHCR images stay **private**. Each app uses its own `GITHUB_TOKEN` to publish an
 
 ## Create the VPS account and verify SSH trust
 
-Use a fresh Hetzner **x86/64** VPS with **Ubuntu 24.04 LTS** (22.04/26.04 LTS are also accepted), 2 CPU / 4 GB, and Primary IPv4 **and** IPv6 assigned at creation. Set the domain's A/AAAA records to that VPS. Permit inbound SSH on your actual port, TCP 80/443, UDP 443, and ICMP in the Hetzner firewall; allow normal outbound traffic. Bootstrap validates both DNS families against addresses assigned to the host and verifies IPv6 HTTPS plus a UDP 443 listener. It preserves provider/cloud-init networking rather than rewriting netplan.
+Use a fresh Hetzner **x86/64** VPS with **Ubuntu 24.04 LTS** (22.04/26.04 LTS are also accepted), 2 CPU / 4 GB, and Primary IPv4 **and** IPv6 assigned at creation. Set the domain's A/AAAA record contents to that VPS. **Cloudflare orange-cloud proxying is supported:** use **Full (strict)** TLS and allow ACME HTTP challenges to reach Caddy on port 80. See [SETUP.md](SETUP.md#2-prepare-the-vps-dns-and-provider-firewall) for exact settings. Permit inbound SSH on your actual port, TCP 80/443, UDP 443, and ICMP in the Hetzner firewall; allow normal outbound traffic. Bootstrap accepts CDN DNS answers, checks the origin certificate directly over IPv4/IPv6 loopback and public IPv6 HTTPS separately, and verifies a UDP 443 listener. It preserves provider/cloud-init networking rather than rewriting netplan.
+
+Caddy trusts CF-Connecting-IP only from the official Cloudflare ranges listed in the Caddyfile, then sends Django one verified visitor address; TRUSTED_PROXY_COUNT remains 1. Review these ranges against https://www.cloudflare.com/ips-v4 and https://www.cloudflare.com/ips-v6 when maintaining infrastructure. Direct clients cannot supply their own trusted IP headers. Browser HTTP/3 through proxied DNS tests Cloudflare's edge, not Cloudflare-to-origin QUIC; enable edge HTTP/3 in Cloudflare separately. Caddy continues supporting origin HTTP/3.
 
 Create your SSH key yourself on a trusted machine:
 

@@ -27,7 +27,11 @@ Use an x86/64 Ubuntu 24.04 LTS VPS with public IPv4 and IPv6. In your domain's D
 | A | `@` for the domain root | Your VPS public IPv4 address |
 | AAAA | `@` for the domain root | Your VPS assigned public IPv6 address |
 
-For a subdomain, use that subdomain instead of `@`. Use direct DNS records while bootstrapping; all A/AAAA answers must belong to this VPS. Do not enable a DNS provider's HTTP proxy for this setup.
+For a subdomain, use that subdomain instead of `@`. **Cloudflare proxying (orange cloud) is supported and can stay enabled during bootstrap.** The record's Content must contain the VPS address, while public DNS answers will correctly contain Cloudflare's addresses.
+
+In Cloudflare, open **SSL/TLS → Overview → Configure** and choose **Full (strict)**. Keep the edge certificate active. Caddy automatically obtains and renews a publicly trusted origin certificate through ACME; no Cloudflare API token or custom Caddy build is needed. Origin TCP 80 must remain reachable for HTTP-01 certificate validation. Under **SSL/TLS → Edge Certificates**, leave **Always Use HTTPS off during first certificate issuance**, and ensure redirect/WAF rules do not redirect or challenge `/.well-known/acme-challenge/*`. After issuance, HTTPS redirect rules may be enabled if that challenge path remains reachable. Caddy redirects ordinary origin HTTP requests to HTTPS itself. Do not use Flexible TLS.
+
+Caddy accepts CF-Connecting-IP only from Cloudflare's published IP ranges. It forwards one verified visitor IP to Django, preserving the application's existing one-proxy setting. With orange cloud enabled, browser HTTP/3 terminates at Cloudflare; enable **Speed → Optimization → Protocol Optimization → HTTP/3 (with QUIC)** if available in your dashboard. Origin Caddy still supports HTTP/3, but ordinary Cloudflare-to-origin traffic does not prove origin QUIC use.
 
 In Hetzner's firewall attached to the server, permit inbound TCP `22`, TCP `80`, TCP `443`, UDP `443`, and ICMP for IPv4/IPv6. Bootstrap also configures Ubuntu's firewall, but cannot open a blocked Hetzner firewall. If SSH source IPs are restricted, the GitHub-hosted runner must also be allowed to reach SSH.
 
@@ -38,7 +42,7 @@ Resolve-DnsName REPLACE_WITH_YOUR_DOMAIN -Type A
 Resolve-DnsName REPLACE_WITH_YOUR_DOMAIN -Type AAAA
 ```
 
-Both must return this VPS's addresses before bootstrap. Docker and Caddy do not need to be installed manually.
+Both must resolve before bootstrap. With the proxy enabled, Cloudflare addresses are expected. Bootstrap verifies Caddy's origin certificate separately using local connections with the correct domain/SNI, then checks public IPv6 HTTPS through DNS. Docker and Caddy do not need to be installed manually.
 
 ## 3. Generate the deployment client key on your laptop
 
@@ -263,7 +267,8 @@ No GHCR PAT needs to be created: infra now pulls with its automatic `GITHUB_TOKE
 | `sudo: a password is required` | Reapply the sudoers file and run `visudo -cf` in the admin console; repeat the laptop test and require output `deploy` then `0`. |
 | Missing Django/database/SMTP setting | Fill every required infra secret/variable from step 6, even for initial bootstrap. |
 | SSH timeout | Verify the actual SSH port, public server address and both provider/Ubuntu firewalls; the runner must reach this port. |
-| DNS/IPv6 validation failure | A/AAAA must point directly to this VPS; ensure its provider-assigned IPv6 and default route exist. Bootstrap does not invent addresses. |
+| DNS/IPv6 validation failure | Public A/AAAA answers must exist; Cloudflare addresses are accepted. In the Cloudflare dashboard the records' Content must point to this VPS. Ensure provider-assigned IPv6/default route exist. |
+| Caddy origin certificate is not ready | Inspect `sudo journalctl -u caddy -n 100 --no-pager`. Allow origin TCP 80/443, keep Cloudflare Full (strict), and allow the ACME HTTP path through WAF/redirect rules. Keep proxy enabled. |
 | GHCR `denied` / `unauthorized` after publication | Add infra Read under that package's Manage Actions access; app tokens cannot grant infra this access themselves. |
 
 After changing infra environment settings, manually dispatch the relevant app's infra deployment with `apply_shared=true` to install the new runtime settings. Changing GitHub values alone does not change the server. Keep `expected_image` empty for ordinary manual deployment. Failed deployment jobs can be retried after the cause is fixed; do not rerun bootstrap just to replace an application image.
