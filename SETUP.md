@@ -2,6 +2,8 @@
 
 Run **PowerShell blocks on your Windows laptop** and **bash blocks on the Ubuntu VPS**. Replace every `REPLACE_...` placeholder before running its block. Examples use SSH port `22` and account `deploy` throughout.
 
+For the exact Resend SMTP credentials and domain/DNS setup, see [EMAIL.md](EMAIL.md). Use `smtp.resend.com:587` with STARTTLS; the Resend key goes in infra/prod's `EMAIL_HOST_PASSWORD` secret.
+
 ## 1. Understand which credentials do what
 
 | Credential | Where it belongs | What uses it |

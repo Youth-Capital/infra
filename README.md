@@ -2,6 +2,8 @@
 
 **First deployment: follow [SETUP.md](SETUP.md) for exact Windows PowerShell, server-console and GitHub instructions.** SSH connects as the non-root `deploy` account; the workflow runs bootstrap through passwordless `sudo -n`. `VPS_HOST` is an **infra/prod environment secret**. GitHub App credentials belong only in **backend/prod** and **frontend/prod**, never infra/prod.
 
+**Production email: follow [EMAIL.md](EMAIL.md) to verify the Resend domain, obtain a scoped SMTP credential, configure infra/prod, apply settings and test delivery. Use port 587 with STARTTLS on Hetzner.**
+
 Three repositories, one Ubuntu VPS, one Compose project. Application repositories publish scanned images and change their own `apps/<app>/image.env` here. Only this repository has VPS access. Caddy runs as an Ubuntu systemd service and proxies the two application containers through IPv4 loopback; the public website supports IPv4, IPv6, HTTPS and HTTP/3.
 
 ```text
