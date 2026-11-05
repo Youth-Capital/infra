@@ -1,5 +1,5 @@
 services:
-  frontend:
+  youthcapital-frontend:
     image: ${FRONTEND_IMAGE:?Publish a frontend image before deploying frontend}
     user: "101:101"
     restart: unless-stopped
@@ -8,7 +8,10 @@ services:
     security_opt: [no-new-privileges:true]
     ports:
       - "127.0.0.1:8080:8080"
-    networks: [frontendnet]
+    networks:
+      frontendnet:
+      edge:
+        aliases: [youthcapital-frontend]
     tmpfs:
       - /tmp:size=16m,mode=1777,nosuid,noexec
     healthcheck:

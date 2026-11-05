@@ -8,6 +8,7 @@ import { envFile, parseImage, renderRuntime, verifyRelease, writeRuntime } from 
 import { createBundle, remoteCommand, shellQuote, sshSettings } from '../scripts/controller.mjs';
 
 export const fixtureEnv = {
+  DB_HOST: 'postgres', DB_PORT: '5432', DB_NAME: 'yoshlar_kapitali_db', DB_USER: 'yoshlar_kapitali_user', DB_NETWORK: 'infrastructure_database',
   DOMAIN: 'example.test', ACME_EMAIL: 'operations@example.test',
   DJANGO_SECRET_KEY: 'k'.repeat(60), POSTGRES_PASSWORD: `long-password-\u0024\u0023'\"\\-`.repeat(2),
   EMAIL_HOST: 'smtp.example.test', EMAIL_HOST_USER: 'test-smtp-user', EMAIL_HOST_PASSWORD: `mail-\u0024\u0023'\"\\`,
@@ -18,7 +19,10 @@ const temporary = () => mkdtempSync(path.join(tmpdir(), 'youthcapital-test-'));
 
 test('runtime preserves punctuation and percent-encodes database credentials', () => {
   const files = renderRuntime(fixtureEnv);
-  assert.ok(files['postgres.env'].includes(`POSTGRES_PASSWORD=${fixtureEnv.POSTGRES_PASSWORD}\n`));
+  assert.equal(files['postgres.env'], undefined);
+  assert.equal(files['compose.env'], 'DB_NETWORK=infrastructure_database\n');
+  assert.ok(files['backend.env'].includes('DB_NAME=yoshlar_kapitali_db\n'));
+  assert.ok(files['backend.env'].includes('DB_USER=yoshlar_kapitali_user\n'));
   assert.ok(files['backend.env'].includes(`EMAIL_HOST_PASSWORD=${fixtureEnv.EMAIL_HOST_PASSWORD}\n`));
   const url = files['backend.env'].match(/^DATABASE_URL=(.+)$/m)[1];
   assert.equal(decodeURIComponent(new URL(url).password), fixtureEnv.POSTGRES_PASSWORD);
@@ -98,7 +102,7 @@ test('transport has bounded commands, stdin authentication and cleanup', () => {
   assert.throws(() => remoteCommand({ mode: 'deploy', app: 'backend', shared: false, remote: "/tmp/x';id", actor: 'deploy-app[bot]', port: 22 }));
 });
 
-test('fresh bootstrap succeeds without Docker and cleans staging/registry files', { skip: process.platform === 'win32' }, () => {
+test('file-only bootstrap needs no registry login and cleans staging/registry files', { skip: process.platform === 'win32' }, () => {
   const remote = mkdtempSync('/tmp/youthcapital.');
   const directory = temporary();
   const bin = path.join(directory, 'bin');
@@ -111,7 +115,7 @@ test('fresh bootstrap succeeds without Docker and cleans staging/registry files'
       assert.equal(executable.status, 0);
       symlinkSync(executable.stdout.trim(), path.join(bin, tool));
     }
-    // No docker binary exists on this simulated fresh machine.
+    // A file-only bootstrap must not log into the registry or start Docker.
     writeFileSync(path.join(bin, 'sudo'), '#!/bin/bash\n[[ "$1" == -n ]] && shift\nexec "$@"\n', { mode: 0o755 });
     writeFileSync(path.join(remote, 'scripts/bootstrap.sh'), '#!/bin/bash\n[[ "$2" == 22 && -d "$DOCKER_CONFIG" ]] || exit 1\nprintf "%s" "$DOCKER_CONFIG" > "$TEST_RECEIPT"\n');
     const archive = spawnSync('tar', ['-C', remote, '-czf', path.join(remote, 'bundle.tar.gz'), 'scripts'], { encoding: 'utf8' });

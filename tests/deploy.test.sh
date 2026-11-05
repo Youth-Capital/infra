@@ -12,8 +12,8 @@ cat > "$scratch/bin/docker" <<'MOCK'
 printf '%s\n' "$@" >> "$TEST_LOG"
 printf '%q ' "$@" >> "$TEST_COMMAND_LOG"
 printf '\n' >> "$TEST_COMMAND_LOG"
-if [[ "${TEST_FAIL_SHARED:-}" == 1 && "$*" == *'postgres redis'* ]]; then exit 13; fi
-if [[ "${TEST_FAIL_PULL:-}" == 1 && "$*" == *'pull backend'* ]]; then exit 12; fi
+if [[ "${TEST_FAIL_SHARED:-}" == 1 && "$*" == *'up -d --wait --wait-timeout 120 redis'* ]]; then exit 13; fi
+if [[ "${TEST_FAIL_PULL:-}" == 1 && "$*" == *'pull youthcapital-backend'* ]]; then exit 12; fi
 MOCK
 cat > "$scratch/bin/curl" <<'MOCK'
 #!/usr/bin/env bash
@@ -24,9 +24,9 @@ chmod +x "$scratch/bin/docker" "$scratch/bin/curl"
 export PATH="$scratch/bin:$PATH"
 printf 'BACKEND_IMAGE=ghcr.io/youth-capital/backend:backend-%040d-r1-123-a1@sha256:%064d\n' 0 0 > "$scratch/backend.env"
 bash "$repository/scripts/deploy.sh" backend "$scratch/backend.env"
-grep -q '^backend$' "$TEST_LOG"
-if grep -q '^frontend$' "$TEST_LOG"; then exit 1; fi
-grep -q 'up .*postgres redis' "$TEST_COMMAND_LOG"
+grep -q '^youthcapital-backend$' "$TEST_LOG"
+if grep -q '^youthcapital-frontend$' "$TEST_LOG"; then exit 1; fi
+grep -q 'up .*redis' "$TEST_COMMAND_LOG"
 grep -Fq "$YC_ROOT/compose.yaml" "$TEST_LOG"
 grep -q '^--no-deps$' "$TEST_LOG"
 if grep -q '^--remove-orphans$' "$TEST_LOG"; then exit 1; fi
@@ -48,7 +48,7 @@ if bash "$repository/scripts/deploy.sh" unknown; then exit 1; fi
 if TEST_FAIL_PULL=1 bash "$repository/scripts/deploy.sh" backend "$scratch/backend.env"; then
   echo 'Pull failure was reported as deployment success.' >&2; exit 1
 fi
-if grep -q 'up .* backend ' "$TEST_COMMAND_LOG"; then exit 1; fi
+if grep -q 'up .* youthcapital-backend ' "$TEST_COMMAND_LOG"; then exit 1; fi
 
 : > "$TEST_LOG"
 : > "$TEST_COMMAND_LOG"

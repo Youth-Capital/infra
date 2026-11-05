@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -16,7 +18,9 @@ function docker(args) {
 test('Caddy route/error logs redact signed-download/reset tokens and Referer', async () => {
   // Run the production config on an ephemeral loopback HTTP port; no TLS/DNS/production state.
   const name = `infra-log-test-${Date.now()}`;
-  docker(['run', '-d', '--name', name, '-p', '127.0.0.1::8080', '-e', 'DOMAIN=http://localhost:8080', '-e', 'ACME_EMAIL=operations@example.test', '-v', `${path.join(repository, 'Caddyfile')}:/etc/caddy/Caddyfile:ro`, image]);
+  const directory = mkdtempSync(path.join(tmpdir(), name));
+  writeFileSync(path.join(directory, 'Caddyfile'), readFileSync(path.join(repository, 'Caddyfile'), 'utf8').replace(/\n\ttls \{[\s\S]*?\n\t\}/, ''));
+  docker(['run', '-d', '--name', name, '-p', '127.0.0.1::8080', '-e', 'DOMAIN=http://localhost:8080', '-e', 'ACME_EMAIL=operations@example.test', '-v', `${path.join(directory, 'Caddyfile')}:/etc/caddy/Caddyfile:ro`, image]);
   try {
     const port = docker(['port', name, '8080/tcp']).split(':').at(-1);
     const origin = `http://localhost:${port}`;
@@ -48,5 +52,5 @@ test('Caddy route/error logs redact signed-download/reset tokens and Referer', a
     assert.equal(logs.includes('private-download-token'), false, logs);
     assert.equal(logs.includes('private-password-reset-token'), false, logs);
     assert.equal(logs.includes('private-referer-token'), false, logs);
-  } finally { docker(['rm', '-f', name]); }
+  } finally { docker(['rm', '-f', name]); rmSync(directory, { recursive: true, force: true }); }
 });

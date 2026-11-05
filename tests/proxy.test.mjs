@@ -26,8 +26,9 @@ test('Cloudflare visitor IP is trusted only from an approved proxy peer', async 
   assert.equal(source.includes('trusted_proxies static private_ranges'), false);
   // Substitute a single synthetic proxy peer only in this disposable fixture.
   writeFileSync(path.join(directory, 'Caddyfile'), source
+    .replace(/\n\ttls \{[\s\S]*?\n\t\}/, '')
     .replace(/trusted_proxies static[^\n]+/, `trusted_proxies static ${prefix}.3/32`)
-    .replace('127.0.0.1:8000', `${name}-upstream:8000`));
+    .replace('youthcapital-backend:8000', `${name}-upstream:8000`));
   const containers = [];
   let network = false;
   try {

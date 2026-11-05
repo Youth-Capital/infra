@@ -1,5 +1,5 @@
 services:
-  backend:
+  youthcapital-backend:
     image: ${BACKEND_IMAGE:?Publish a backend image before deploying backend}
     user: "10001:10001"
     restart: unless-stopped
@@ -14,14 +14,17 @@ services:
       TMPDIR: /app/private-media/.tmp
     ports:
       - "127.0.0.1:8000:8000"
-    networks: [backendnet]
+    networks:
+      backendnet:
+      database:
+      edge:
+        aliases: [youthcapital-backend]
     volumes:
       - ./data/media:/app/media
       - ./data/private-media:/app/private-media
     tmpfs:
       - /tmp:size=32m,mode=1777,nosuid,noexec
     depends_on:
-      postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
     healthcheck:
       test:

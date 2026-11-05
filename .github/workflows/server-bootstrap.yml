@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   bootstrap:
-    name: Bootstrap Ubuntu server
+    name: Prepare project on existing Docker host
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -43,8 +43,11 @@ jobs:
           ACME_EMAIL: ${{ vars.ACME_EMAIL }}
           DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-          POSTGRES_DB: ${{ vars.POSTGRES_DB || 'youthcapital' }}
-          POSTGRES_USER: ${{ vars.POSTGRES_USER || 'youthcapital' }}
+          DB_HOST: ${{ vars.DB_HOST }}
+          DB_PORT: ${{ vars.DB_PORT || '5432' }}
+          DB_NAME: ${{ vars.DB_NAME }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_NETWORK: ${{ vars.DB_NETWORK }}
           GUNICORN_WORKERS: ${{ vars.GUNICORN_WORKERS || '2' }}
           GUNICORN_TIMEOUT: ${{ vars.GUNICORN_TIMEOUT || '300' }}
           EMAIL_HOST: ${{ vars.EMAIL_HOST }}

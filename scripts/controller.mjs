@@ -16,8 +16,8 @@ export function remoteCommand({ mode, app, shared, remote, port, actor }) {
   if (!['bootstrap', 'deploy'].includes(mode) || (mode === 'deploy' && !['backend', 'frontend'].includes(app))) throw new Error('Invalid deployment target');
   if (!/^\d+$/.test(String(port)) || Number(port) < 1 || Number(port) > 65535) throw new Error('Invalid SSH port');
   const login = `printf '%s' "$registry_token" | sudo -n timeout --signal=TERM --kill-after=15s 60s docker --config "$registry_config" login ghcr.io -u '${actor}' --password-stdin; `;
-  // A fresh VPS has no Docker yet and no initialized private app to pull.
-  const registry = mode === 'bootstrap' ? `if command -v docker >/dev/null 2>&1; then ${login}fi; ` : login;
+  // Bootstrap prepares files only; no registry access or image pull is needed.
+  const registry = mode === 'bootstrap' ? '' : login;
   const prepare = `set -eu; cd '${remote}'; trap 'rm -rf "${remote}"' EXIT; tar -xzf bundle.tar.gz; registry_config=$(mktemp -d); trap 'rm -rf "$registry_config" "${remote}"' EXIT; IFS= read -r registry_token; ${registry}unset registry_token; `;
   const operation = mode === 'bootstrap'
     ? `sudo -n env DOCKER_CONFIG="$registry_config" timeout --signal=TERM --kill-after=15s 25m bash '${remote}/scripts/bootstrap.sh' '${remote}' '${port}'`
@@ -89,7 +89,7 @@ export function createBundle(directory, { mode, app, shared, env = process.env }
   if (shared || mode === 'bootstrap') {
     for (const filename of ['compose.yaml', 'Caddyfile']) copyFileSync(path.join(repositoryRoot, filename), path.join(directory, filename));
     mkdirSync(path.join(directory, 'scripts'), { recursive: true });
-    for (const filename of ['lib.sh', 'deploy.sh', 'apply-shared.sh', 'bootstrap.sh']) {
+    for (const filename of ['lib.sh', 'deploy.sh', 'apply-shared.sh', 'bootstrap.sh', 'backup.sh', 'restore.sh', 'maintenance.sh', 'verify-tls.sh', 'project_backup.py']) {
       copyFileSync(path.join(repositoryRoot, 'scripts', filename), path.join(directory, 'scripts', filename));
     }
     for (const name of ['backend', 'frontend']) {
@@ -98,6 +98,13 @@ export function createBundle(directory, { mode, app, shared, env = process.env }
       copyFileSync(path.join(repositoryRoot, 'apps', name, 'compose.yaml'), path.join(target, 'compose.yaml'));
     }
     writeRuntime(path.join(directory, 'runtime'), env);
+    // The existing edge keeps its own DOMAIN. Render this site's hostname and
+    // contact literally so it cannot accidentally replace AgroZanjir's site.
+    const template = readFileSync(path.join(repositoryRoot, 'Caddyfile'), 'utf8');
+    const site = template.slice(template.indexOf('\n{$DOMAIN} {') + 1)
+      .replaceAll('{$DOMAIN}', env.DOMAIN).replaceAll('{$ACME_EMAIL}', env.ACME_EMAIL);
+    mkdirSync(path.join(directory, 'edge'));
+    writeFileSync(path.join(directory, 'edge/site.caddy'), site, { mode: 0o644 });
   }
   if (mode === 'deploy') {
     mkdirSync(path.join(directory, 'apps', app), { recursive: true });

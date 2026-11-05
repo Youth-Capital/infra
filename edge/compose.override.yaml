@@ -1,0 +1,15 @@
+# Install beside /opt/agrozanjir/compose.yaml only after shared-edge approval.
+# Always include this override in subsequent AgroZanjir Compose invocations.
+services:
+  caddy:
+    volumes:
+      - /opt/youthcapital/edge:/etc/caddy/youthcapital:ro
+      - /opt/youthcapital/data/media:/srv/youthcapital/media:ro
+    networks:
+      - web
+      - youthcapital_edge
+
+networks:
+  youthcapital_edge:
+    external: true
+    name: youthcapital_edge

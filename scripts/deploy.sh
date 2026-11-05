@@ -15,7 +15,7 @@ fi
 
 # Recover stopped dependencies, then replace only this application.
 yc_compose "$app" config --quiet
-yc_compose "$app" up -d --wait --wait-timeout 120 postgres redis
+yc_compose "$app" up -d --wait --wait-timeout 120 redis
 yc_compose "$app" pull "$app"
 yc_compose "$app" up -d --no-deps --wait --wait-timeout 120 "$app"
 

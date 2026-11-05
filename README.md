@@ -1,162 +1,99 @@
-# Youth Capital production
+# YouthCapital on the dedicated Docker server
 
-**First deployment: follow [SETUP.md](SETUP.md) for exact Windows PowerShell, server-console and GitHub instructions.** SSH connects as the non-root `deploy` account; the workflow runs bootstrap through passwordless `sudo -n`. `VPS_HOST` is an **infra/prod environment secret**. GitHub App credentials belong only in **backend/prod** and **frontend/prod**, never infra/prod.
+YouthCapital uses the operator-owned PostgreSQL container; it never creates a PostgreSQL service or volume. Redis remains a private, nonpersistent cache with `noeviction`. The existing shared edge Caddy serves the same API, admin, static and public-media routes. Private media is never mounted into Caddy.
 
-**Production email: follow [EMAIL.md](EMAIL.md) to verify the Resend domain, obtain a scoped SMTP credential, configure infra/prod, apply settings and test delivery. Use port 587 with STARTTLS on Hetzner.**
+Server inspection on 2026-10-26 confirmed:
 
-Three repositories, one Ubuntu VPS, one Compose project. Application repositories publish scanned images and change their own `apps/<app>/image.env` here. Only this repository has VPS access. Caddy runs as an Ubuntu systemd service and proxies the two application containers through IPv4 loopback; the public website supports IPv4, IPv6, HTTPS and HTTP/3.
-
-```text
-backend CI  -> GHCR -> apps/backend/image.env  -> deploy-backend -> backend container
-frontend CI -> GHCR -> apps/frontend/image.env -> deploy-frontend -> frontend container
-                                      infra/prod owns SSH + runtime secrets
-```
-
-## Files and routine operations
-
-| File | Purpose |
+| Resource | Verified value |
 | --- | --- |
-| `compose.yaml` | Shared Postgres 18 and Redis; their ports are private. |
-| `apps/<app>/compose.yaml` | One application definition, merged with the base. |
-| `apps/<app>/image.env` | The application's readable immutable tag **and digest**, set by its release workflow. |
-| `Caddyfile` | Same-origin routing, TLS, public media and HTTP/3. |
-| `scripts/bootstrap.sh` | Install Docker/Compose/Caddy, prepare disk and firewall, verify DNS/IPv6. |
-| `scripts/apply-shared.sh` | Apply config/runtime files and reapply already initialized apps. |
-| `scripts/deploy.sh` | Start/check Postgres and Redis, pull and replace one application, then verify health. |
-| `scripts/controller.mjs`, `runtime.mjs` | GitHub release guard, SSH transfer and private runtime-file rendering. |
+| SSH | `deploy@65.108.142.153`, port `22` |
+| Project root / Compose project | `/opt/youthcapital` / `youthcapital` (both unused on the new host) |
+| PostgreSQL container / network | `infrastructure-postgres-postgres-1` / `infrastructure_database` |
+| Database / owner role | `yoshlar_kapitali_db` / `yoshlar_kapitali_user` |
+| Role privileges | LOGIN; no SUPERUSER, CREATEDB or CREATEROLE; database CONNECT/CREATE/TEMP and public-schema USAGE/CREATE available |
+| Destination data | Zero application tables; existing production data must be exported from the old origin |
+| Internal DB address | `postgres:5432` |
+| Public edge | `agrozanjir-caddy-1` already owns TCP 80/443 and UDP 443 |
+| Project readiness ports | Host loopback 8000/8080 currently free |
+| Domain | `yoshlarkapitali.uz` responds through Cloudflare; new origin does not yet have its certificate |
 
-The fixed VPS directory is `/opt/youthcapital`, and every Compose command uses `-p youthcapital`. The backend and frontend use separate networks; frontend cannot connect directly to Postgres or Redis. The backend retains outbound access for SMTP and optional providers. Redis uses `noeviction` because evicting cache keys could reset security counters.
+No repository `AGENTS.md` was present in this workspace. All three repositories were clean before this migration. AgroZanjir infrastructure was read as a reference; its working tree and production configuration were not edited.
 
-Normal image pushes change only the selected application's server image file. They start/check Postgres and Redis using the installed configuration, then replace the selected app; the sibling app keeps running. They do not apply shared config or runtime variables. A manual `deploy-backend` or `deploy-frontend` dispatch defaults `apply_shared=true`: install current shared config/runtime, preserve both server release files, reapply initialized apps, then deploy the selected release. Changing GitHub environment variables alone does not deploy anything; use that manual operation.
+## GitHub settings
 
-Each backend/frontend deployment is one Actions run: **Validate infra → Deploy application**. The deploy job requires validation to succeed, including for manual deployments. Both workflows call the same reusable checks file, so validation is maintained once. Image-only pushes do not also launch a separate `infra checks` run; standalone checks remain for PRs and infrastructure source changes.
+Configure **Youth-Capital/infra → Settings → Environments → prod**. Application repositories keep their existing `prod` environments, GitHub App configuration, private GHCR publishing and release contracts. Runtime settings belong only in infra/prod.
 
-An empty initial image file is intentional. Bootstrap starts only Postgres and Redis; it never loads or pulls an application placeholder. Each application deploy loads only `compose.yaml` plus its own fragment. Do not use `docker compose down`, `--remove-orphans`, or `down -v` for deployments. The omitted sibling is an intentional orphan and continues running.
+| Type | Name | Required value |
+| --- | --- | --- |
+| Secret | `DB_USER` | `yoshlar_kapitali_user` |
+| Secret | `POSTGRES_PASSWORD` | The already provisioned application role password; preserve this established secret name. Replace any old project's password with the correct new role password. |
+| Variable | `DB_HOST` | `postgres` |
+| Variable | `DB_PORT` | `5432` |
+| Variable | `DB_NAME` | `yoshlar_kapitali_db` |
+| Variable | `DB_NETWORK` | `infrastructure_database` |
+| Secret | `VPS_HOST` | `65.108.142.153` |
+| Variable | `VPS_USERNAME`, `VPS_PORT` | `deploy`, `22` |
+| Secret | `VPS_SSH_KEY` | Authorized private deploy key, supplied through a secure entry mechanism |
+| Secret | `VPS_KNOWN_HOSTS` | Verified host-key entry for this exact server |
+| Variable | `DOMAIN` | `yoshlarkapitali.uz` |
+| Variable | `ACME_EMAIL` | Existing certificate contact email |
 
-## One-time GitHub configuration
+Keep existing secrets `DJANGO_SECRET_KEY` (50+ random characters), `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, and optional integration secrets. Preserve the Django key during migration so signed data remains valid. Keep existing SMTP variables (`EMAIL_HOST`, `EMAIL_PORT`, `DEFAULT_FROM_EMAIL`), Gunicorn settings and optional provider settings. `POSTGRES_DB` and `POSTGRES_USER` are no longer deployment variables. No PostgreSQL administrator password is required, rendered, forwarded or used by these application workflows.
 
-Create a **`prod` environment in all three repositories**. Restrict deployment branches to `main`, protect `main`, and require reviews for workflow/script changes. The infra workflows also explicitly refuse to select a deployment job on another branch. Use GitHub-hosted runners; the VPS is not a runner. Private repository environment secrets require a GitHub plan that supports environments.
+The database/role names are required and checked against the inspected project identity; there are no guessed fallback names. The password must be the existing app role's password; the established renderer requires at least 24 characters. Changing GitHub settings does not rotate a database password. Do not change shared PostgreSQL credentials or create another database/user.
 
-Create a GitHub App, install it on **the infra repository only**, and grant repository **Contents: read/write** and **Actions: read/write**. It needs no Workflows permission. Contents permits the application release jobs to update image files; Actions permits recovery dispatch and observing deployment results. If an infra ruleset requires pull requests, explicitly allow this App's automated image commits through that rule. The App's credential has repository-wide contents access; protect the application release workflows that can use it.
+GitHub CLI returned HTTP 401 during preparation, so settings have **not** been written or inspected through that connection. Authenticate securely before applying them; never paste passwords into chat or command-line arguments.
 
-In each application repository's `prod` environment, add the App private key under `INFRA_APP_PRIVATE_KEY` and its ID under the variable `INFRA_APP_ID`. Set `INFRA_REPO=Youth-Capital/infra`; its release workflow targets `main` and builds `linux/amd64`. No VPS or Django/database runtime secrets belong in application repositories. Browser build variables are public; the production API URL is relative `/api/v1`.
+All three infra workflows (server-bootstrap, deploy-backend and deploy-frontend) forward these settings. Runtime files are mode 0600, copied over pinned SSH, and never sourced as shell scripts. Host/network interpolation lives in `runtime/compose.env`; credentials remain in raw `runtime/backend.env`. `DATABASE_URL` is also rendered for compatibility with previously published backend images. New backend settings read explicit `DB_HOST`, `DB_PORT`, `DB_NAME` and `DB_USER` first, and preserve legacy URL/POSTGRES_* support when explicit settings are absent.
 
-In **infra/prod**, configure:
+## Architecture and commands
 
-| Secrets | Meaning |
-| --- | --- |
-| `VPS_HOST` | VPS public IPv4 address or hostname; no username, scheme or port. A literal global IPv6 address is also supported. |
-| `VPS_SSH_KEY` | The account's private SSH key, including its complete multiline contents. |
-| `VPS_KNOWN_HOSTS` | Verified OpenSSH known-hosts line for this exact host and port. |
-| `DJANGO_SECRET_KEY` | At least 50 random characters; generate a real secret, not a placeholder. |
-| `POSTGRES_PASSWORD` | At least 24 random characters. |
-| `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` | Required SMTP authentication; checked before server changes. |
-| `SENTRY_DSN`, `ANTHROPIC_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Optional integrations; leave absent when unused. |
+The base Compose file defines only Redis. The backend joins its private Redis network, external database network, and `youthcapital_edge`. The frontend joins its own network and `youthcapital_edge`, with no database/Redis access. Only the existing Caddy is added to `youthcapital_edge`. Unique service names `youthcapital-backend` and `youthcapital-frontend` prevent alias collisions with AgroZanjir's `backend` and `frontend`. The edge network is project-owned; the shared database network is external and must exist.
 
-| Variables | Default / purpose |
-| --- | --- |
-| `VPS_USERNAME` | `deploy`; your manually created automation account. |
-| `DOMAIN` | Required, e.g. `domain-name.uz`; lowercase hostname without scheme/path. |
-| `ACME_EMAIL` | Required certificate contact email. |
-| `EMAIL_HOST` | Required SMTP hostname. |
-| `VPS_PORT` | `22`; must match the server's actual SSH port. |
-| `POSTGRES_DB`, `POSTGRES_USER` | `youthcapital`. Set before first database initialization. |
-| `GUNICORN_WORKERS`, `GUNICORN_TIMEOUT` | `2`, `300` seconds; suitable starting values for 2 CPU / 4 GB. |
-| `EMAIL_PORT`, `DEFAULT_FROM_EMAIL` | `587`, `noreply@<DOMAIN>`. |
-| `AI_DEFAULT_PROVIDER` | `RULE_BASED`; optional external providers need their matching secret. |
+`lib.sh` retains the operator's `backend`/`frontend` argument names and translates service arguments to unique Compose names. It always uses `-p youthcapital` and `--env-file runtime/compose.env`. Avoid naked Compose commands: use the exact base/app files and both environment files when necessary. Never use `down`, `--remove-orphans`, volume removal, or global Docker prune for migration or deployment. Existing old database volumes remain untouched.
 
-Runtime secrets must be single-line values. Password punctuation, including `$`, `#`, quotes and backslashes, is preserved using Compose's raw `env_file` format. Files are generated in private temporary runner directories, transferred over SSH and installed under root-readable `/opt/youthcapital/runtime` with mode `0600`. They are never sourced as shell scripts or printed. Do not run `docker compose config` without `--quiet` on production: expanded configuration contains secrets.
+`server-bootstrap` now prepares project storage, runtime, include files and project-only maintenance units on an already provisioned host. It does not install packages, alter APT/Docker/PostgreSQL, change firewall/network/SSH/accounts, start containers, or reload Caddy. It refuses a conflicting project directory or occupied probe ports. It installs and enables project timers without starting them; start them explicitly after cutover. Existing timers are not stopped or restarted.
 
-GHCR images stay **private**. Each app uses its own `GITHUB_TOKEN` to publish and clean up its package. After its first publication, open each package's **Package settings → Manage Actions access**, add **Youth-Capital/infra** with **Read**, and verify the publishing repository has Admin. This package-setting step cannot be done before the package exists. Infra's job token then authenticates pulls through a temporary Docker configuration on the VPS, which is removed when the operation finishes. No persistent GHCR PAT is needed. A reboot uses already downloaded images and does not require registry credentials.
+Routine immutable image pushes replace only the selected application after checking Redis. A manual infra deploy with `apply_shared=true` installs runtime/config, preserves sibling release files and reapplies initialized applications. These operations may restart the backend, whose existing entrypoint runs migrations automatically. **Approval is therefore required before deployment, not just before an explicit migrate command.** Bootstrap no longer runs application entrypoints. Shared Caddy updates always require a separate, approved validation/reload.
 
-## Create the VPS account and verify SSH trust
+Application CI still scans, publishes private immutable images and updates only its own `apps/<app>/image.env`. First publication can use `publish_only=true`; grant infra Read under each package's Manage Actions access. Keep `INFRA_REPO=Youth-Capital/infra`, `INFRA_APP_ID` and `INFRA_APP_PRIVATE_KEY` only in application prod environments as before. Restrict prod deployments to main and use environment reviewers to prevent accidental rollout during migration.
 
-Use a fresh Hetzner **x86/64** VPS with **Ubuntu 24.04 LTS** (22.04/26.04 LTS are also accepted), 2 CPU / 4 GB, and Primary IPv4 **and** IPv6 assigned at creation. Set the domain's A/AAAA record contents to that VPS. **Cloudflare orange-cloud proxying is supported:** use **Full (strict)** TLS and allow ACME HTTP challenges to reach Caddy on port 80. See [SETUP.md](SETUP.md#2-prepare-the-vps-dns-and-provider-firewall) for exact settings. Permit inbound SSH on your actual port, TCP 80/443, UDP 443, and ICMP in the Hetzner firewall; allow normal outbound traffic. Bootstrap accepts CDN DNS answers, checks the origin certificate directly over IPv4/IPv6 loopback and public IPv6 HTTPS separately, and verifies a UDP 443 listener. It preserves provider/cloud-init networking rather than rewriting netplan.
+## Shared edge integration
 
-Caddy trusts CF-Connecting-IP only from the official Cloudflare ranges listed in the Caddyfile, then sends Django one verified visitor address; TRUSTED_PROXY_COUNT remains 1. Review these ranges against https://www.cloudflare.com/ips-v4 and https://www.cloudflare.com/ips-v6 when maintaining infrastructure. Direct clients cannot supply their own trusted IP headers. Browser HTTP/3 through proxied DNS tests Cloudflare's edge, not Cloudflare-to-origin QUIC; enable edge HTTP/3 in Cloudflare separately. Caddy continues supporting origin HTTP/3.
+See [edge/README.md](edge/README.md). Caddy cannot be installed or started as another host service: 80/443 are already owned. The reviewable edge Caddy candidate and patch preserve the existing AgroZanjir site and add a YouthCapital include plus existing YouthCapital log redaction/Cloudflare trust settings. A Compose override adds only the project media mount, include directory and project edge network to the existing Caddy.
 
-Create your SSH key yourself on a trusted machine:
+The include uses a **literal** YouthCapital hostname/contact, rendered from validated inputs; the edge's existing `DOMAIN=website-project.uz` remains unchanged. It uses unique upstreams and serves only `/opt/youthcapital/data/media` at `/srv/youthcapital/media`. Private files stay in `/opt/youthcapital/data/private-media` (0700); upload scratch stays under its `.tmp`. App storage uses numeric UID/GID 10001. The backend keeps loopback 8000 and frontend loopback 8080 for host readiness probes.
+
+[SETUP.md](SETUP.md) contains the approval gates and exact rollout order, including data transfer and certificate issuance. [EMAIL.md](EMAIL.md) retains the existing SMTP runbook.
+
+## Backups and restores
+
+`scripts/backup.sh` creates `/opt/youthcapital/backups/<UTC timestamp>/` containing a custom-format dump of **only** `yoshlar_kapitali_db`, public and private media (excluding `.tmp`), and a project/database manifest with SHA-256 checksums. A shared lock serializes project deployments and maintenance. PostgreSQL tools run inside the existing shared container via password-authenticated TCP as **yoshlar_kapitali_user**, never postgres. The password travels in process environment, not argv or logs. No cluster/global-role dump is made.
+
+Daily local backups are scheduled for 02:10 Asia/Tashkent; token cleanup for 03:10. Local backups are not offsite disaster recovery. Copy completed snapshots through an approved encrypted offsite process; no retention pruning, volume deletion or other project's backup jobs are installed. Failed snapshots remain clearly marked `.incomplete-*`; investigate before manual cleanup.
+
+For a consistent database/media cutover, stop application writes before the final snapshot; a live scheduled backup is database-consistent but cannot guarantee a simultaneous media/database point in time. Keep old source backups and service state for rollback.
 
 ```sh
-ssh-keygen -t ed25519 -f youthcapital-deploy -C youthcapital-production
+sudo /opt/youthcapital/scripts/backup.sh
+# Restore is destructive within this project's DB and requires explicit approval.
+# Stop YouthCapital writes first and take a fresh pre-restore backup.
+sudo /opt/youthcapital/scripts/restore.sh /opt/youthcapital/backups/<snapshot> --confirm-project-restore
 ```
 
-Use a dedicated automation key without a passphrase; the private key is protected by GitHub's `prod` environment. Through your existing trusted admin session or Hetzner Console, create the account and paste **the public key only**:
+Restore validates project identity, all checksums and media archive paths before database writes. It restores only the fixed application database in one transaction, without changing owners, ACLs, roles, or any database creation/drop. Unsafe links/devices/traversal are rejected. Media is overlaid and ownership restored to 10001; files absent from the snapshot are intentionally retained. For an exact media rollback, use empty, separately prepared project media directories and keep the previous directories for recovery. Never restore a cluster dump into the shared container. Do not restore an untrusted SQL/archive file.
+
+## Validation
+
+Infra CI checks runtime/release guards, secret transport, workflow setting forwarding, independent Compose models, shell syntax/ShellCheck, provisioned-host bootstrap isolation, project backup/restore scope, Caddy route/error-log redaction and Cloudflare forged-header rejection. Gitleaks, Semgrep and Trivy scan current source/config using pinned images. Backend CI retains its existing full suite and source/image scans; dedicated tests verify explicit DB settings, legacy compatibility and rejection of partial explicit configuration.
 
 ```sh
-sudo adduser --disabled-password --gecos '' deploy
-sudo install -d -o deploy -g deploy -m 0700 /home/deploy/.ssh
-sudo tee /home/deploy/.ssh/authorized_keys >/dev/null
-# Paste: restrict <the entire youthcapital-deploy.pub line>, then Ctrl+D.
-sudo chown deploy:deploy /home/deploy/.ssh/authorized_keys
-sudo chmod 0600 /home/deploy/.ssh/authorized_keys
-printf 'deploy ALL=(ALL) NOPASSWD: ALL\n' | sudo tee /etc/sudoers.d/youthcapital-deploy >/dev/null
-sudo chmod 0440 /etc/sudoers.d/youthcapital-deploy
-sudo visudo -cf /etc/sudoers.d/youthcapital-deploy
-```
-
-Limit this account to key authentication and noninteractive commands:
-
-```sh
-sudo tee /etc/ssh/sshd_config.d/60-youthcapital-deploy.conf >/dev/null <<'SSH'
-Match User deploy
-    PasswordAuthentication no
-    KbdInteractiveAuthentication no
-    PermitTTY no
-    AllowTcpForwarding no
-    X11Forwarding no
-Match all
-SSH
-sudo sshd -t
-sudo systemctl reload ssh
-```
-
-If you choose a different `VPS_USERNAME`, change the account/path and `Match User` consistently. The `restrict` public-key option also disables forwarding and PTY requests. SSH commands and SCP/SFTP transfers still work. Keep the existing trusted admin session open while checking `ssh -i youthcapital-deploy deploy@<VPS_HOST> 'sudo -n true'` from another terminal. Only after that succeeds, disable root SSH through an early global config file containing `PermitRootLogin no`, run `sshd -t`, and reload SSH. Workflows never log in as root; administrative catalogue/password operations can use the Hetzner Console or a separate trusted operator account.
-
-This account can administer the host through passwordless sudo, which is needed for package installation, Caddy/firewall changes and Docker. It has root-equivalent deployment privileges. Application containers use unprivileged users; the Docker daemon itself uses the standard rootful Ubuntu installation.
-
-From the **Hetzner Console**, read the server's public host key and fingerprint:
-
-```sh
-sudo cat /etc/ssh/ssh_host_ed25519_key.pub
-sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
-```
-
-Set `VPS_KNOWN_HOSTS` to `203.0.113.10 ssh-ed25519 <the verified key>`, replacing the example host with exactly `VPS_HOST`. For a custom port, use `[203.0.113.10]:2222 ssh-ed25519 <key>`; for IPv6/custom port use `[2001:db8::1]:2222`. A `ssh-keyscan` result is only a candidate until its fingerprint matches the trusted console. Workflows use `StrictHostKeyChecking=yes` and never silently accept a changed key. Verify an SSH login and `sudo -n true` before running bootstrap.
-
-## First deployment, retries and changing servers
-
-1. Push the reviewed infra implementation to `main` first, then push the application implementations; the workflows only become available after those pushes. Finish `prod` settings, SSH trust and A/AAAA records, then dispatch **server bootstrap** on `main`. This installs signed apt packages, opens required host firewall ports while preserving SSH, persists QUIC UDP buffer settings, installs Caddy, and starts Postgres/Redis. An initial push containing empty release files can trigger rejected app deploy runs; these make no VPS changes. Real application releases replace the empty pointers.
-2. Dispatch each application's **CI and release** workflow on `main` with `publish_only=true` to create its private GHCR package without deployment. Grant infra package Read access, then dispatch the full release with `publish_only=false`. Later, a failed app deploy job can be rerun without rebuilding or making an empty infra commit.
-3. A new app release changes its image file and triggers only that app's infra deployment. The app pipeline waits for the matching infra run's successful **Deploy application** step before final GHCR cleanup. All VPS workflows use one queued concurrency group; server scripts also use a bounded `flock`.
-4. Dispatch **deploy-backend** or **deploy-frontend** with `apply_shared=true` when changing Compose/Caddy config or runtime settings. Keep `expected_image` empty for ordinary manual use. Application recovery dispatches supply an exact expected image and `apply_shared=false`.
-5. From the Hetzner Console or a trusted operator session, create the admin account and load the three production catalogues manually. Run the following from `/opt/youthcapital`; do not run demonstration/test seeding in production:
-
-   ```sh
-   sudo docker compose -p youthcapital -f compose.yaml -f apps/backend/compose.yaml --env-file apps/backend/image.env exec backend python manage.py createsuperuser
-   sudo docker compose -p youthcapital -f compose.yaml -f apps/backend/compose.yaml --env-file apps/backend/image.env exec backend python manage.py seed_taxonomy
-   sudo docker compose -p youthcapital -f compose.yaml -f apps/backend/compose.yaml --env-file apps/backend/image.env exec backend python manage.py seed_plans
-   sudo docker compose -p youthcapital -f compose.yaml -f apps/backend/compose.yaml --env-file apps/backend/image.env exec backend python manage.py seed_soft_skill_test
-   ```
-
-Superseded or mismatched releases fail before deployment. The event commit's image must match both an optional requested image and the latest image file on `main`. Retrying an old app run cannot roll production back over a newer release. Failed health checks stop the workflow and prevent normal cleanup. Deployment jobs and HTTP/SSH/health waits have finite timeouts; errors never become silent successful skips.
-
-The backend migrates on container startup and serves Django admin static files already built into its image. Public media is on `/opt/youthcapital/data/media`; private files and large-upload scratch are under `/opt/youthcapital/data/private-media`, which Caddy never serves. Postgres persists in the `youthcapital_postgres_data` named volume, mounted at `/var/lib/postgresql` for version 18. Redis is a nonpersistent cache. Container replacement may briefly interrupt that application; there is no Kubernetes or blue/green layer.
-
-Postgres initialization variables apply only to an empty data directory. Changing `POSTGRES_PASSWORD` in GitHub does **not** rotate the existing database password. First change the role password interactively using `psql`'s `\password youthcapital`, then update the GitHub secret and apply shared configuration. Database/user-name changes and PostgreSQL major upgrades need explicit database migration. A new VPS recreates infrastructure; moving existing database/media data remains a separate operator task. No backup system is installed by this repository.
-
-To replace the server, create the account/key trust and DNS on the new VPS, update only infra/prod's VPS settings, run **server bootstrap**, then manually dispatch each app's infra deployment with `apply_shared=false` to pull its already published release. Move existing data before enabling traffic if this is a replacement of a populated server.
-
-Normal release cleanup retains the new image and the previous published image. An older cleanup retry skips if a newer image has been published, even when a publish-only run left infra unchanged. The app repositories also provide manual registry maintenance for accumulated failed releases. GHCR container storage/bandwidth is currently free; GitHub documents advance notice before any pricing change. Retention does not guarantee capacity under a future quota that is already consumed by protected images.
-
-## Check and inspect
-
-```sh
-node --test tests/runtime.test.mjs
+node --test tests/runtime.test.mjs tests/workflows.test.mjs tests/compose.test.mjs tests/edge.test.mjs tests/caddy.test.mjs tests/proxy.test.mjs tests/bootstrap.test.mjs
 bash tests/deploy.test.sh
-node tests/fixtures.mjs
-docker compose -p youthcapital -f .cache/validation/compose.yaml config --quiet
-docker compose -p youthcapital -f .cache/validation/compose.yaml -f .cache/validation/apps/backend/compose.yaml --env-file .cache/validation/apps/backend/image.env config --quiet
+python3 tests/project_backup_test.py
+shellcheck -x scripts/*.sh tests/*.sh
 ```
 
-The `infra checks` workflow validates each independent Compose model, Caddy config, signed-download/password-reset token redaction and the meaningful guard/quoting/deployment tests without production secrets. Caddy preserves routine route logs while removing signed-download `t`, password-reset `token` query values and Referer headers from access and upstream-error logs. On the server, use targeted `compose ps`/`logs` commands with the same base+app flags, and `sudo journalctl -u caddy`. With an HTTP/3-capable client, `curl --http3-only -I https://<DOMAIN>` verifies public QUIC; `curl -6 -I https://<DOMAIN>` verifies IPv6. Keep Postgres/backend/frontend ports inaccessible publicly.
+Docker tests run disposable **local** validation containers, never production services. Do not print expanded production `docker compose config`; use `config --quiet`. Actual password authentication, restore of old data, migrations, edge reload, ACME issuance and public cutover remain approval-gated rollout checks.
+
+See [VERIFICATION.md](VERIFICATION.md) for executed checks and the dated security findings. Backend main has since received dependency updates; the combined revision must pass the release security gate before deployment. Migration validation does not waive that gate.

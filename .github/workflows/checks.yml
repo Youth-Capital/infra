@@ -13,6 +13,19 @@ permissions:
   contents: read
 
 jobs:
+  security:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Scan secrets, source and configuration
+        run: |
+          bash scripts/security-scan.sh gitleaks
+          bash scripts/security-scan.sh semgrep
+          bash scripts/security-scan.sh source
+
   validate:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -24,13 +37,16 @@ jobs:
         with:
           node-version: '24.21.0'
       - name: Test release guards and secret transport
-        run: node --test tests/runtime.test.mjs
+        run: node --test tests/runtime.test.mjs tests/workflows.test.mjs
       - name: Check and exercise shell scripts
         run: |
           for file in scripts/*.sh tests/*.sh; do bash -n "$file"; done
+          shellcheck -x scripts/*.sh tests/*.sh
           bash tests/deploy.test.sh
+      - name: Verify project-only backup and restore safety
+        run: python3 tests/project_backup_test.py
       - name: Validate independent Compose models
-        run: node --test tests/compose.test.mjs
+        run: node --test tests/compose.test.mjs tests/edge.test.mjs
       - name: Validate Caddy configuration
         run: |
           docker run --rm -e DOMAIN=example.test -e ACME_EMAIL=operations@example.test \
@@ -41,5 +57,5 @@ jobs:
         run: node --test tests/caddy.test.mjs
       - name: Verify Cloudflare proxy trust and forged-header rejection
         run: node --test tests/proxy.test.mjs
-      - name: Verify proxied and direct bootstrap DNS
+      - name: Verify provisioned-host bootstrap isolation
         run: node --test tests/bootstrap.test.mjs

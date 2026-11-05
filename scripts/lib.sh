@@ -25,11 +25,20 @@ yc_bounded() {
 yc_compose() {
   local app="$1"
   shift
-  local command=(docker compose -p youthcapital -f "$YC_ROOT/compose.yaml")
+  local command=(docker compose -p youthcapital --env-file "$YC_ROOT/runtime/compose.env" -f "$YC_ROOT/compose.yaml")
   if [[ "$app" != shared ]]; then
     command+=(-f "$YC_ROOT/apps/$app/compose.yaml" --env-file "$YC_ROOT/apps/$app/image.env")
   fi
-  "${command[@]}" "$@"
+  # Unique service names prevent Docker DNS alias collisions when the edge
+  # joins both applications' networks. Keep the operator's backend/frontend API.
+  local argument translated=()
+  for argument in "$@"; do
+    case "$argument" in
+      backend|frontend) translated+=("youthcapital-$argument") ;;
+      *) translated+=("$argument") ;;
+    esac
+  done
+  "${command[@]}" "${translated[@]}"
 }
 
 yc_image() {

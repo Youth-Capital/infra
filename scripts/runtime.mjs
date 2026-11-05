@@ -38,18 +38,30 @@ export function renderRuntime(env) {
   if (secret.length < 50) throw new Error('DJANGO_SECRET_KEY needs at least 50 random characters');
   const password = required(env, 'POSTGRES_PASSWORD');
   if (password.length < 24) throw new Error('POSTGRES_PASSWORD needs at least 24 random characters');
-  const db = scalar('POSTGRES_DB', env.POSTGRES_DB || 'youthcapital');
-  const user = scalar('POSTGRES_USER', env.POSTGRES_USER || 'youthcapital');
+  const db = required(env, 'DB_NAME');
+  const user = required(env, 'DB_USER');
   for (const value of [db, user]) {
     if (!/^[a-z_][a-z0-9_]{0,62}$/.test(value)) throw new Error('Postgres database/user names must be lowercase SQL identifiers');
   }
+  // This deployment is deliberately restricted to the operator-provisioned DB.
+  if (db !== 'yoshlar_kapitali_db' || user !== 'yoshlar_kapitali_user') {
+    throw new Error('DB_NAME/DB_USER must match the verified YouthCapital database and role');
+  }
+  const host = required(env, 'DB_HOST');
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9.-]*$/.test(host)) throw new Error('Invalid DB_HOST');
+  const port = integer(env, 'DB_PORT', '5432', 1, 65535);
+  const network = required(env, 'DB_NETWORK');
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(network)) throw new Error('Invalid DB_NETWORK');
   const origin = `https://${domain}`;
   const backend = {
     DJANGO_SETTINGS_MODULE: 'config.settings.prod',
     DJANGO_DEBUG: 'False',
     DJANGO_SECRET_KEY: secret,
     DJANGO_ALLOWED_HOSTS: `${domain},localhost`,
-    DATABASE_URL: `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(password)}@postgres:5432/${encodeURIComponent(db)}`,
+    DB_HOST: host, DB_PORT: port, DB_NAME: db, DB_USER: user,
+    POSTGRES_PASSWORD: password,
+    // Retain compatibility with published images whose entrypoint needs a URL.
+    DATABASE_URL: `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}:${port}/${encodeURIComponent(db)}`,
     DATABASE_SSL_REQUIRE: 'False',
     REDIS_URL: 'redis://redis:6379/0',
     CELERY_BROKER_URL: '',
@@ -75,7 +87,7 @@ export function renderRuntime(env) {
     backend[name] = env[name] || '';
   }
   return {
-    'postgres.env': envFile({ POSTGRES_DB: db, POSTGRES_USER: user, POSTGRES_PASSWORD: password }),
+    'compose.env': envFile({ DB_NETWORK: network }),
     'backend.env': envFile(backend),
     'caddy.env': envFile({ DOMAIN: domain, ACME_EMAIL: acmeEmail }),
   };

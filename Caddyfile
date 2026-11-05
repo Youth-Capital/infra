@@ -21,6 +21,13 @@
 }
 
 {$DOMAIN} {
+	# Cloudflare terminates TLS-ALPN at its edge; use proxied HTTP-01.
+	tls {
+		issuer acme {
+			email {$ACME_EMAIL}
+			disable_tlsalpn_challenge
+		}
+	}
 	encode zstd gzip
 	log {
 		format filter {
@@ -43,7 +50,7 @@
 			# The app supports 500 MB videos; allow multipart overhead too.
 			max_size 550MB
 		}
-		reverse_proxy 127.0.0.1:8000 {
+		reverse_proxy youthcapital-backend:8000 {
 			# Django receives exactly one verified address, not the CDN chain.
 			header_up X-Forwarded-For {client_ip}
 			header_up X-Forwarded-Proto {scheme}
@@ -51,7 +58,7 @@
 	}
 
 	handle_path /media/* {
-		root * /opt/youthcapital/data/media
+		root * /srv/youthcapital/media
 		header {
 			X-Content-Type-Options nosniff
 			Content-Security-Policy "default-src 'none'; img-src 'self'; sandbox"
@@ -68,7 +75,7 @@
 	}
 
 	handle {
-		reverse_proxy 127.0.0.1:8080 {
+		reverse_proxy youthcapital-frontend:8080 {
 			header_up X-Forwarded-For {client_ip}
 			header_up X-Forwarded-Proto {scheme}
 		}
